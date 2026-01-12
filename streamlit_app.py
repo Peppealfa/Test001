@@ -63,7 +63,7 @@ if 'risposta_aperta' not in st.session_state:
     st.session_state.risposta_aperta = {}
 
 # Titolo dell'applicazione
-st.title("❓ Sistema di Gestione Domande e Risposte")
+st.title("❓ Facciamo un questionario")
 st.markdown("---")
 
 # Sezione per inserire una nuova domanda
