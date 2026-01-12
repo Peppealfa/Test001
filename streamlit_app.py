@@ -14,7 +14,9 @@ def init_database():
         CREATE TABLE IF NOT EXISTS domande (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             domanda TEXT NOT NULL,
-            data_ora TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            risposta TEXT,
+            data_ora_domanda TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            data_ora_risposta TIMESTAMP
         )
     ''')
     conn.commit()
@@ -24,15 +26,24 @@ def init_database():
 def salva_domanda(domanda):
     conn = sqlite3.connect('domande.db')
     c = conn.cursor()
-    c.execute('INSERT INTO domande (domanda, data_ora) VALUES (?, ?)', 
+    c.execute('INSERT INTO domande (domanda, data_ora_domanda) VALUES (?, ?)', 
               (domanda, datetime.now()))
+    conn.commit()
+    conn.close()
+
+# Funzione per salvare una risposta
+def salva_risposta(id_domanda, risposta):
+    conn = sqlite3.connect('domande.db')
+    c = conn.cursor()
+    c.execute('UPDATE domande SET risposta = ?, data_ora_risposta = ? WHERE id = ?', 
+              (risposta, datetime.now(), id_domanda))
     conn.commit()
     conn.close()
 
 # Funzione per recuperare tutte le domande
 def get_tutte_domande():
     conn = sqlite3.connect('domande.db')
-    df = pd.read_sql_query('SELECT * FROM domande ORDER BY data_ora DESC', conn)
+    df = pd.read_sql_query('SELECT * FROM domande ORDER BY data_ora_domanda DESC', conn)
     conn.close()
     return df
 
@@ -47,8 +58,12 @@ def elimina_domanda(id_domanda):
 # Inizializza il database
 init_database()
 
+# Inizializza lo stato della sessione per gestire i form di risposta
+if 'risposta_aperta' not in st.session_state:
+    st.session_state.risposta_aperta = {}
+
 # Titolo dell'applicazione
-st.title("❓ Sistema di Gestione Domande")
+st.title("❓ Sistema di Gestione Domande e Risposte")
 st.markdown("---")
 
 # Sezione per inserire una nuova domanda
@@ -80,38 +95,106 @@ domande_df = get_tutte_domande()
 
 if not domande_df.empty:
     # Mostra statistiche
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Totale Domande", len(domande_df))
     with col2:
-        st.metric("Ultima Domanda", 
-                  pd.to_datetime(domande_df['data_ora'].iloc[0]).strftime('%d/%m/%Y %H:%M'))
+        risposte_date = domande_df['risposta'].notna().sum()
+        st.metric("Risposte Date", risposte_date)
+    with col3:
+        st.metric("In Attesa", len(domande_df) - risposte_date)
     
     st.markdown("---")
     
-    # Mostra le domande in card
-    for index, row in domande_df.iterrows():
-        with st.container():
-            col1, col2, col3 = st.columns([0.5, 8, 1.5])
-            
-            with col1:
-                st.write(f"**#{row['id']}**")
-            
-            with col2:
-                st.write(f"**{row['domanda']}**")
-                st.caption(f"📅 {pd.to_datetime(row['data_ora']).strftime('%d/%m/%Y alle %H:%M:%S')}")
-            
-            with col3:
-                if st.button("🗑️ Elimina", key=f"delete_{row['id']}", use_container_width=True):
-                    elimina_domanda(row['id'])
-                    st.success("Domanda eliminata!")
-                    st.rerun()
-            
-            st.markdown("---")
+    # Filtro per visualizzare solo domande senza risposta
+    mostra_solo_senza_risposta = st.checkbox("🔍 Mostra solo domande senza risposta")
+    
+    # Filtra il dataframe se necessario
+    if mostra_solo_senza_risposta:
+        domande_filtrate = domande_df[domande_df['risposta'].isna()]
+    else:
+        domande_filtrate = domande_df
+    
+    if domande_filtrate.empty:
+        st.info("📭 Nessuna domanda trovata con i filtri selezionati.")
+    else:
+        # Mostra le domande in card
+        for index, row in domande_filtrate.iterrows():
+            with st.container():
+                # Header della domanda
+                col1, col2, col3 = st.columns([0.5, 7, 2.5])
+                
+                with col1:
+                    # Icona stato
+                    if pd.notna(row['risposta']):
+                        st.write("✅")
+                    else:
+                        st.write("⏳")
+                
+                with col2:
+                    st.write(f"**Domanda #{row['id']}**")
+                
+                with col3:
+                    if st.button("🗑️ Elimina", key=f"delete_{row['id']}", use_container_width=True):
+                        elimina_domanda(row['id'])
+                        st.success("Domanda eliminata!")
+                        st.rerun()
+                
+                # Corpo della domanda
+                st.info(f"❓ **{row['domanda']}**")
+                st.caption(f"📅 Domanda inviata il {pd.to_datetime(row['data_ora_domanda']).strftime('%d/%m/%Y alle %H:%M:%S')}")
+                
+                # Sezione risposta
+                if pd.notna(row['risposta']):
+                    # Risposta già presente
+                    st.success(f"💬 **Risposta:** {row['risposta']}")
+                    st.caption(f"📅 Risposta data il {pd.to_datetime(row['data_ora_risposta']).strftime('%d/%m/%Y alle %H:%M:%S')}")
+                    
+                    # Opzione per modificare la risposta
+                    if st.button("✏️ Modifica risposta", key=f"edit_{row['id']}"):
+                        st.session_state.risposta_aperta[row['id']] = True
+                        st.rerun()
+                
+                # Form per inserire/modificare la risposta
+                if pd.isna(row['risposta']) or st.session_state.risposta_aperta.get(row['id'], False):
+                    with st.form(key=f"form_risposta_{row['id']}"):
+                        risposta_testo = st.text_area(
+                            "Scrivi la risposta:",
+                            value=row['risposta'] if pd.notna(row['risposta']) else "",
+                            placeholder="Inserisci qui la tua risposta...",
+                            height=100,
+                            key=f"textarea_{row['id']}"
+                        )
+                        
+                        col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 3])
+                        with col_btn1:
+                            submit = st.form_submit_button("💾 Salva Risposta", type="primary", use_container_width=True)
+                        with col_btn2:
+                            if pd.notna(row['risposta']):
+                                cancel = st.form_submit_button("❌ Annulla", use_container_width=True)
+                            else:
+                                cancel = False
+                        
+                        if submit:
+                            if risposta_testo.strip():
+                                salva_risposta(row['id'], risposta_testo)
+                                st.success("✅ Risposta salvata!")
+                                if row['id'] in st.session_state.risposta_aperta:
+                                    del st.session_state.risposta_aperta[row['id']]
+                                st.rerun()
+                            else:
+                                st.error("⚠️ La risposta non può essere vuota!")
+                        
+                        if cancel:
+                            if row['id'] in st.session_state.risposta_aperta:
+                                del st.session_state.risposta_aperta[row['id']]
+                            st.rerun()
+                
+                st.markdown("---")
     
     # Opzione per scaricare lo storico
     st.download_button(
-        label="📥 Scarica Storico (CSV)",
+        label="📥 Scarica Storico Completo (CSV)",
         data=domande_df.to_csv(index=False).encode('utf-8'),
         file_name=f'storico_domande_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
         mime='text/csv',
@@ -121,4 +204,4 @@ else:
 
 # Footer
 st.markdown("---")
-st.caption("💡 Suggerimento: Tutte le domande vengono salvate automaticamente nel database locale.")
+st.caption("💡 Suggerimento: Tutte le domande e risposte vengono salvate automaticamente nel database locale.")
