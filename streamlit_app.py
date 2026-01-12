@@ -88,7 +88,7 @@ with col2:
 st.markdown("---")
 
 # Sezione per visualizzare lo storico
-st.header("📚 Storico delle Domande")
+st.header("📚 Storico delle Domande e Risposte")
 
 # Recupera tutte le domande
 domande_df = get_tutte_domande()
@@ -118,77 +118,85 @@ if not domande_df.empty:
     if domande_filtrate.empty:
         st.info("📭 Nessuna domanda trovata con i filtri selezionati.")
     else:
-        # Mostra le domande in card
+        # Mostra le domande in card con layout a due colonne
         for index, row in domande_filtrate.iterrows():
             with st.container():
-                # Header della domanda
-                col1, col2, col3 = st.columns([0.5, 7, 2.5])
+                # Header con ID e bottone elimina
+                col_header1, col_header2, col_header3 = st.columns([0.5, 8, 1.5])
                 
-                with col1:
+                with col_header1:
                     # Icona stato
                     if pd.notna(row['risposta']):
                         st.write("✅")
                     else:
                         st.write("⏳")
                 
-                with col2:
+                with col_header2:
                     st.write(f"**Domanda #{row['id']}**")
                 
-                with col3:
+                with col_header3:
                     if st.button("🗑️ Elimina", key=f"delete_{row['id']}", use_container_width=True):
                         elimina_domanda(row['id'])
                         st.success("Domanda eliminata!")
                         st.rerun()
                 
-                # Corpo della domanda
-                st.info(f"❓ **{row['domanda']}**")
-                st.caption(f"📅 Domanda inviata il {pd.to_datetime(row['data_ora_domanda']).strftime('%d/%m/%Y alle %H:%M:%S')}")
+                # Layout a due colonne: Domanda | Risposta
+                col_domanda, col_risposta = st.columns(2)
                 
-                # Sezione risposta
-                if pd.notna(row['risposta']):
-                    # Risposta già presente
-                    st.success(f"💬 **Risposta:** {row['risposta']}")
-                    st.caption(f"📅 Risposta data il {pd.to_datetime(row['data_ora_risposta']).strftime('%d/%m/%Y alle %H:%M:%S')}")
+                # COLONNA SINISTRA: DOMANDA
+                with col_domanda:
+                    st.markdown("### ❓ Domanda")
+                    st.info(row['domanda'])
+                    st.caption(f"📅 {pd.to_datetime(row['data_ora_domanda']).strftime('%d/%m/%Y alle %H:%M:%S')}")
+                
+                # COLONNA DESTRA: RISPOSTA
+                with col_risposta:
+                    st.markdown("### 💬 Risposta")
                     
-                    # Opzione per modificare la risposta
-                    if st.button("✏️ Modifica risposta", key=f"edit_{row['id']}"):
-                        st.session_state.risposta_aperta[row['id']] = True
-                        st.rerun()
-                
-                # Form per inserire/modificare la risposta
-                if pd.isna(row['risposta']) or st.session_state.risposta_aperta.get(row['id'], False):
-                    with st.form(key=f"form_risposta_{row['id']}"):
-                        risposta_testo = st.text_area(
-                            "Scrivi la risposta:",
-                            value=row['risposta'] if pd.notna(row['risposta']) else "",
-                            placeholder="Inserisci qui la tua risposta...",
-                            height=100,
-                            key=f"textarea_{row['id']}"
-                        )
+                    # Se c'è già una risposta e non è in modalità modifica
+                    if pd.notna(row['risposta']) and not st.session_state.risposta_aperta.get(row['id'], False):
+                        st.success(row['risposta'])
+                        st.caption(f"📅 {pd.to_datetime(row['data_ora_risposta']).strftime('%d/%m/%Y alle %H:%M:%S')}")
                         
-                        col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 3])
-                        with col_btn1:
-                            submit = st.form_submit_button("💾 Salva Risposta", type="primary", use_container_width=True)
-                        with col_btn2:
-                            if pd.notna(row['risposta']):
-                                cancel = st.form_submit_button("❌ Annulla", use_container_width=True)
-                            else:
-                                cancel = False
-                        
-                        if submit:
-                            if risposta_testo.strip():
-                                salva_risposta(row['id'], risposta_testo)
-                                st.success("✅ Risposta salvata!")
+                        if st.button("✏️ Modifica", key=f"edit_{row['id']}", use_container_width=True):
+                            st.session_state.risposta_aperta[row['id']] = True
+                            st.rerun()
+                    
+                    # Form per inserire/modificare la risposta
+                    elif pd.isna(row['risposta']) or st.session_state.risposta_aperta.get(row['id'], False):
+                        with st.form(key=f"form_risposta_{row['id']}"):
+                            risposta_testo = st.text_area(
+                                "Scrivi la risposta:",
+                                value=row['risposta'] if pd.notna(row['risposta']) else "",
+                                placeholder="Inserisci qui la tua risposta...",
+                                height=150,
+                                key=f"textarea_{row['id']}",
+                                label_visibility="collapsed"
+                            )
+                            
+                            col_btn1, col_btn2 = st.columns(2)
+                            with col_btn1:
+                                submit = st.form_submit_button("💾 Salva", type="primary", use_container_width=True)
+                            with col_btn2:
+                                if pd.notna(row['risposta']):
+                                    cancel = st.form_submit_button("❌ Annulla", use_container_width=True)
+                                else:
+                                    cancel = False
+                            
+                            if submit:
+                                if risposta_testo.strip():
+                                    salva_risposta(row['id'], risposta_testo)
+                                    st.success("✅ Risposta salvata!")
+                                    if row['id'] in st.session_state.risposta_aperta:
+                                        del st.session_state.risposta_aperta[row['id']]
+                                    st.rerun()
+                                else:
+                                    st.error("⚠️ La risposta non può essere vuota!")
+                            
+                            if cancel:
                                 if row['id'] in st.session_state.risposta_aperta:
                                     del st.session_state.risposta_aperta[row['id']]
                                 st.rerun()
-                            else:
-                                st.error("⚠️ La risposta non può essere vuota!")
-                        
-                        if cancel:
-                            if row['id'] in st.session_state.risposta_aperta:
-                                del st.session_state.risposta_aperta[row['id']]
-                            st.rerun()
                 
                 st.markdown("---")
     
